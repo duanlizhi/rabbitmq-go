@@ -10,10 +10,14 @@ import (
 
 //生产者interface
 type IProducer interface {
-	Publish(msg []byte, exchangeName string, exchangeType string) error
-	PublishWithConfig(msg []byte, exchangeName string, exchangeType string, conf rabbitmq_go.IConfig) error
-	PublishOnQueue(body []byte, queueName string) error
-	PublishOnQueueWithConfig(body []byte, queueName string, conf rabbitmq_go.IConfig) error
+	Publish(msg []byte, exchangeName string, exchangeType string,
+		confirmCallback func(confirms <-chan amqp.Confirmation)) error
+	PublishWithConfig(msg []byte, exchangeName string, exchangeType string, conf rabbitmq_go.IConfig,
+		confirmCallback func(confirms <-chan amqp.Confirmation)) error
+	PublishOnQueue(body []byte, queueName string,
+		confirmCallback func(confirms <-chan amqp.Confirmation)) error
+	PublishOnQueueWithConfig(body []byte, queueName string, conf rabbitmq_go.IConfig,
+		confirmCallback func(confirms <-chan amqp.Confirmation)) error
 }
 
 //生产者interface implement
