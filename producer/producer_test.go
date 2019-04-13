@@ -25,7 +25,7 @@ func TestProducer_Publish(t *testing.T) {
 	msg.Id = "1"
 	msg.Text = "测试test1，看看rabbitmq如何"
 	bytes, _ := json.Marshal(msg)
-	producer.Publish(bytes, "test1", rabbitmq_go.TopicExchange, ConfirmCallback1)
+	producer.Publish(bytes, "test1", rabbitmq_go.TopicExchange, "", ConfirmCallback1)
 }
 
 type Message struct {
