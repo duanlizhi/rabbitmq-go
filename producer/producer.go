@@ -1,0 +1,192 @@
+package producer
+
+import (
+	"fmt"
+	"log"
+	rabbitmq_go "rabbitmq-go"
+
+	"github.com/streadway/amqp"
+)
+
+//生产者interface
+type IProducer interface {
+	Publish(msg []byte, exchangeName string, exchangeType string) error
+	PublishWithConfig(msg []byte, exchangeName string, exchangeType string, conf rabbitmq_go.IConfig) error
+	PublishOnQueue(body []byte, queueName string) error
+	PublishOnQueueWithConfig(body []byte, queueName string, conf rabbitmq_go.IConfig) error
+}
+
+//生产者interface implement
+type Producer struct {
+	conn                *amqp.Connection
+	durable, autoDelete bool
+}
+
+//创建消费者，默认持久化到硬盘、自动删除无用队列
+func NewProducer(amqpURI string) *Producer {
+	return NewProducerByDurableAndAutoDelete(amqpURI, true, true)
+}
+
+//创建消费者
+func NewProducerByDurableAndAutoDelete(amqpURI string, durable, autoDelete bool) *Producer {
+	if amqpURI == "" {
+		panic("Cannot initialize connection to broker, please check your profile. Have you initialized?")
+	}
+
+	var err error
+	var producer Producer
+	producer.conn, err = amqp.Dial(fmt.Sprintf("%s/", amqpURI))
+	if err != nil {
+		panic("Failed to connect to AMQP compatible broker at: " + amqpURI)
+	}
+	producer.durable = durable
+	producer.autoDelete = autoDelete
+	return &producer
+}
+
+//创建消费者，默认持久化到硬盘，自动删除无连接队列
+func NewProducerByConfig(amqpURI string, config rabbitmq_go.IConfig) *Producer {
+	return NewProducerByConfigDurableAndDelete(amqpURI, true, true, config)
+}
+
+//init producer by config,durable,autoDelete
+func NewProducerByConfigDurableAndDelete(amqpURI string, durable, autoDelete bool, config rabbitmq_go.IConfig) *Producer {
+	if amqpURI == "" {
+		panic("Cannot initialize connection to broker, please check your profile. Have you initialized?")
+	}
+	var err error
+	var producer Producer
+	var conf amqp.Config
+	conf.Vhost, conf.ChannelMax, conf.Properties = config.GetConfig()
+
+	producer.conn, err = amqp.DialConfig(fmt.Sprintf("%s/", amqpURI), conf)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to connect to AMQP compatible broker at: %s\n error msg: %s", amqpURI, err))
+	}
+	producer.durable = durable
+	producer.autoDelete = autoDelete
+	return &producer
+}
+
+//发布消息
+//如果需要手动确认发布成功，那么请传入确认回调函数，不需要的话传入nil
+func (p *Producer) Publish(body []byte, exchangeName string, exchangeType string,
+	confirmCallback func(confirms <-chan amqp.Confirmation)) error {
+	if exchangeType == "" {
+		exchangeType = rabbitmq_go.TopicExchange
+	}
+	if p.conn == nil {
+		return fmt.Errorf("the connection not initialized")
+	}
+	ch, err := p.conn.Channel() // Get a channel from the connection
+	defer ch.Close()
+	err = ch.ExchangeDeclare(
+		exchangeName, // name of the exchange
+		exchangeType, // type
+		p.durable,    // durable
+		p.autoDelete, // delete when complete
+		false,        // internal
+		false,        // noWait
+		nil,          // arguments
+	)
+	if err != nil {
+		return fmt.Errorf("ExchangeDeclare: %s", err)
+	}
+
+	// Reliable publisher confirms require confirm.select support from the
+	// connection.
+	if confirmCallback != nil {
+		log.Printf("enabling publishing confirms.")
+		if err := ch.Confirm(false); err != nil {
+			return fmt.Errorf("Channel could not be put into confirm mode: %s", err)
+		}
+
+		confirms := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
+
+		defer confirmCallback(confirms)
+	}
+
+	queue, err := ch.QueueDeclare( // Declare a queue that will be created if not exists with some args
+		exchangeName, // our queue name
+		p.durable,    // durable
+		p.autoDelete, // delete when unused
+		false,        // exclusive
+		false,        // no-wait
+		nil,          // arguments
+	)
+
+	err = ch.QueueBind(
+		queue.Name,   // name of the queue
+		exchangeName, // bindingKey
+		exchangeName, // sourceExchange
+		false,        // noWait
+		nil,          // arguments
+	)
+
+	err = ch.Publish( // Publishes a message onto the queue.
+		exchangeName, // exchange
+		exchangeName, // routing key      q.Name
+		false,        // mandatory
+		false,        // immediate
+		amqp.Publishing{
+			Body: body, // Our JSON body as []byte
+		})
+	fmt.Printf("A message was sent: %v\n", body)
+	return err
+}
+
+//发布到指定的队列
+//
+func (p *Producer) PublishOnQueue(body []byte, queueName string, confirmCallback func(confirms <-chan amqp.Confirmation)) error {
+	if p.conn == nil {
+		panic("Tried to send message before connection was initialized. Don't do that.")
+	}
+	ch, err := p.conn.Channel() // Get a channel from the connection
+	defer ch.Close()
+
+	queue, err := ch.QueueDeclare( // Declare a queue that will be created if not exists with some args
+		queueName, // our queue name
+		false,     // durable
+		false,     // delete when unused
+		false,     // exclusive
+		false,     // no-wait
+		nil,       // arguments
+	)
+
+	// Reliable publisher confirms require confirm.select support from the
+	// connection.
+	if confirmCallback != nil {
+		log.Printf("enabling publishing confirms.")
+		if err := ch.Confirm(false); err != nil {
+			return fmt.Errorf("Channel could not be put into confirm mode: %s", err)
+		}
+
+		confirms := ch.NotifyPublish(make(chan amqp.Confirmation, 1))
+
+		defer confirmCallback(confirms)
+	}
+
+	// Publishes a message onto the queue.
+	err = ch.Publish(
+		"",         // exchange
+		queue.Name, // routing key
+		false,      // mandatory
+		false,      // immediate
+		amqp.Publishing{
+			ContentType: "application/json",
+			Body:        body, // Our JSON body as []byte
+		})
+	fmt.Printf("A message was sent to queue %v: %v\n", queueName, body)
+	return err
+}
+
+//confirm确认回调函数
+func ConfirmCallback(confirms <-chan amqp.Confirmation) {
+	log.Printf("waiting for confirmation of one publishing")
+
+	if confirmed := <-confirms; confirmed.Ack {
+		log.Printf("confirmed delivery with delivery tag: %d", confirmed.DeliveryTag)
+	} else {
+		log.Printf("failed delivery of delivery tag: %d", confirmed.DeliveryTag)
+	}
+}
