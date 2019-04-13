@@ -10,13 +10,9 @@ import (
 
 //生产者interface
 type IProducer interface {
-	Publish(msg []byte, exchangeName string, exchangeType string,
-		confirmCallback func(confirms <-chan amqp.Confirmation)) error
-	PublishWithConfig(msg []byte, exchangeName string, exchangeType string, conf rabbitmq_go.IConfig,
+	Publish(msg []byte, exchangeName string, exchangeType string, routingKey string,
 		confirmCallback func(confirms <-chan amqp.Confirmation)) error
 	PublishOnQueue(body []byte, queueName string,
-		confirmCallback func(confirms <-chan amqp.Confirmation)) error
-	PublishOnQueueWithConfig(body []byte, queueName string, conf rabbitmq_go.IConfig,
 		confirmCallback func(confirms <-chan amqp.Confirmation)) error
 }
 
@@ -74,10 +70,13 @@ func NewProducerByConfigDurableAndDelete(amqpURI string, durable, autoDelete boo
 
 //发布消息
 //如果需要手动确认发布成功，那么请传入确认回调函数，不需要的话传入nil
-func (p *Producer) Publish(body []byte, exchangeName string, exchangeType string,
+func (p *Producer) Publish(body []byte, exchangeName string, exchangeType string, routingKey string,
 	confirmCallback func(confirms <-chan amqp.Confirmation)) error {
 	if exchangeType == "" {
 		exchangeType = rabbitmq_go.TopicExchange
+	}
+	if routingKey == "" {
+		routingKey = exchangeName
 	}
 	if p.conn == nil {
 		return fmt.Errorf("the connection not initialized")
@@ -121,7 +120,7 @@ func (p *Producer) Publish(body []byte, exchangeName string, exchangeType string
 
 	err = ch.QueueBind(
 		queue.Name,   // name of the queue
-		exchangeName, // bindingKey
+		routingKey,   // bindingKey
 		exchangeName, // sourceExchange
 		false,        // noWait
 		nil,          // arguments
@@ -129,7 +128,7 @@ func (p *Producer) Publish(body []byte, exchangeName string, exchangeType string
 
 	err = ch.Publish( // Publishes a message onto the queue.
 		exchangeName, // exchange
-		exchangeName, // routing key      q.Name
+		routingKey,   // routing key
 		false,        // mandatory
 		false,        // immediate
 		amqp.Publishing{
