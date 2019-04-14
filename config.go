@@ -24,13 +24,18 @@ type IConfig struct {
 
 //You can set other message properties here
 type Properties struct {
-	ContentType     string        //消息内容的类型 content_type
-	ContentEncoding string        //消息内容的编码格式 content_encoding
-	Priority        string        //消息优先级
-	MessageId       string        //消息id message_id
-	Timestamp       time.Time     //消息的时间戳timestamp
-	UserId          string        //用户id user_id
-	Expiration      time.Duration //expiration消息的失效时间
+	ContentType     string    //消息内容的类型 content_type
+	ContentEncoding string    //消息内容的编码格式 content_encoding
+	DeliveryMode    uint8     // Transient (0 or 1) or Persistent (2)
+	Priority        string    //消息优先级 0 to 9
+	CorrelationId   string    // correlation identifier
+	ReplyTo         string    // address to to reply to (ex: RPC)
+	MessageId       string    //消息id message_id
+	Timestamp       time.Time //消息的时间戳timestamp
+	UserId          string    //用户id user_id
+	AppId           string    // creating application id
+	Type            string    // message type name
+	Expiration      string    //expiration消息的失效时间
 }
 
 func NewIConfig() IConfig {
@@ -62,13 +67,18 @@ func NewIConfigByHostAndMaxChannel(vhost string, maxChannel int) IConfig {
 func NewIConfigAll(vhost string, maxChannel int, properties Properties) IConfig {
 	conf := NewIConfigByHostAndMaxChannel(vhost, maxChannel)
 	var confMap map[string]interface{}
-	confMap["content_type"] = properties.ContentType
-	confMap["content_encoding"] = properties.ContentEncoding
-	confMap["priority"] = properties.Priority
-	confMap["message_id"] = properties.MessageId
-	confMap["timestamp"] = properties.Timestamp
-	confMap["user_id"] = properties.UserId
-	confMap["expiration"] = properties.Expiration
+	confMap["ContentType"] = properties.ContentType
+	confMap["ContentEncoding"] = properties.ContentEncoding
+	confMap["Priority"] = properties.Priority
+	confMap["MessageId"] = properties.MessageId
+	confMap["Timestamp"] = properties.Timestamp
+	confMap["UserId"] = properties.UserId
+	confMap["Expiration"] = properties.Expiration
+	confMap["Type"] = properties.Type
+	confMap["AppId"] = properties.AppId
+	confMap["DeliveryMode"] = properties.DeliveryMode
+	confMap["CorrelationId"] = properties.CorrelationId
+	confMap["ReplyTo"] = properties.ReplyTo
 	conf.properties = confMap
 	return conf
 }
